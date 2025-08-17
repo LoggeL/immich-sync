@@ -52,8 +52,90 @@ def _add_expires_on_to_syncgroup(engine: Engine) -> None:
         conn.execute(text("ALTER TABLE syncgroup ADD COLUMN expires_on DATE"))
 
 
+def _create_useraccount_table(engine: Engine) -> None:
+    # Ensure useraccount table exists
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                """
+                CREATE TABLE IF NOT EXISTS useraccount (
+                  id INTEGER PRIMARY KEY,
+                  instance_id INTEGER NOT NULL,
+                  username VARCHAR(255),
+                  api_key TEXT NOT NULL,
+                  created_at TIMESTAMP NOT NULL
+                )
+                """
+            )
+        )
+
+    # Add foreign key column to instance if missing
+    if not _column_exists(engine, "instance", "primary_user_id"):
+        with engine.begin() as conn:
+            # SQLite cannot add a column with a foreign key constraint in ALTER TABLE reliably.
+            # Add the column without constraint. Logical FK is enforced at app level.
+            conn.execute(text("ALTER TABLE instance ADD COLUMN primary_user_id INTEGER"))
+
+
+def _create_auth_tables(engine: Engine) -> None:
+    # authuser table
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                """
+                CREATE TABLE IF NOT EXISTS authuser (
+                  id INTEGER PRIMARY KEY,
+                  username VARCHAR(255) UNIQUE NOT NULL,
+                  password_hash TEXT NOT NULL,
+                  password_salt TEXT NOT NULL,
+                  instance_base_url TEXT NOT NULL,
+                  instance_api_key TEXT NOT NULL,
+                  created_at TIMESTAMP NOT NULL
+                )
+                """
+            )
+        )
+    # userinstance mapping table
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                """
+                CREATE TABLE IF NOT EXISTS userinstance (
+                  id INTEGER PRIMARY KEY,
+                  user_id INTEGER NOT NULL,
+                  instance_id INTEGER NOT NULL,
+                  created_at TIMESTAMP NOT NULL
+                )
+                """
+            )
+        )
+
+
+def _create_groupmember_table(engine: Engine) -> None:
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                """
+                CREATE TABLE IF NOT EXISTS groupmember (
+                  id INTEGER PRIMARY KEY,
+                  sync_id INTEGER NOT NULL,
+                  user_id INTEGER NOT NULL,
+                  label VARCHAR(255) NOT NULL,
+                  album_id TEXT NOT NULL,
+                  size_limit_bytes INTEGER NOT NULL,
+                  active BOOLEAN NOT NULL,
+                  created_at TIMESTAMP NOT NULL,
+                  updated_at TIMESTAMP NOT NULL
+                )
+                """
+            )
+        )
+
 MIGRATIONS: List[Migration] = [
     ("2025-08-17-001-add-expires-on", _add_expires_on_to_syncgroup),
+    ("2025-08-17-002-useraccount-and-instance-fk", _create_useraccount_table),
+    ("2025-08-17-003-auth-user-and-link", _create_auth_tables),
+    ("2025-08-17-004-groupmember", _create_groupmember_table),
 ]
 
 

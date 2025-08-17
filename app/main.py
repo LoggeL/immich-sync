@@ -4,6 +4,7 @@ import asyncio
 from datetime import time
 from pathlib import Path
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -19,6 +20,14 @@ templates = Jinja2Templates(directory="app/templates")
 
 def create_app() -> FastAPI:
     app = FastAPI(title="Immich Sync")
+    app.add_middleware(
+        CORSMiddleware,
+        # Allow common local dev origins including dynamic ports and LAN IPs
+        allow_origin_regex=r"^http://(localhost|127\.0\.0\.1|\d+\.\d+\.\d+\.\d+):(\d+)$",
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
 
     static_dir = Path("app/static")
     if static_dir.exists():

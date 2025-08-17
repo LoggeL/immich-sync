@@ -24,6 +24,7 @@ class Instance(SQLModel, table=True):
     album_id: str
     size_limit_bytes: int = Field(default=100 * 1024 * 1024)  # 100 MB default
     active: bool = Field(default=True)
+    primary_user_id: Optional[int] = Field(default=None, foreign_key="useraccount.id")
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 
@@ -44,3 +45,40 @@ class AssetPresence(SQLModel, table=True):
     remote_asset_id: str
     in_album: bool = Field(default=True)
     last_seen_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class UserAccount(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    instance_id: int = Field(foreign_key="instance.id")
+    username: Optional[str] = None
+    api_key: str
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class AuthUser(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    username: str = Field(index=True, unique=True)
+    password_hash: str
+    password_salt: str
+    instance_base_url: str
+    instance_api_key: str
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class UserInstance(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: int = Field(foreign_key="authuser.id")
+    instance_id: int = Field(foreign_key="instance.id")
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class GroupMember(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    sync_id: int = Field(foreign_key="syncgroup.id")
+    user_id: int = Field(foreign_key="authuser.id")
+    label: str = Field(default="Member")
+    album_id: str
+    size_limit_bytes: int = Field(default=100 * 1024 * 1024)
+    active: bool = Field(default=True)
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)

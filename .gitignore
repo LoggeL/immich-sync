@@ -40,3 +40,8 @@ htmlcov/
 *.sqlite3
 immich_sync.db
 *.db-journal
+
+# Frontend build artifacts
+frontend/.next/
+frontend/node_modules/
+frontend/.env.local
