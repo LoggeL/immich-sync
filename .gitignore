@@ -1,0 +1,42 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environment / environment files
+.venv/
+.env
+
+# Packaging / build artifacts
+build/
+dist/
+.eggs/
+*.egg-info/
+
+# Test / coverage
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Type checkers / caches
+.mypy_cache/
+.pytype/
+.pyre/
+
+# IDE / editors
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+
+# Logs
+*.log
+
+# Databases
+*.sqlite
+*.sqlite3
+immich_sync.db
+*.db-journal

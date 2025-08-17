@@ -1,0 +1,119 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="space-y-6">
+  <div class="rounded-lg border border-gray-200 bg-white p-6 shadow-sm">
+    <div class="flex items-start justify-between">
+      <div>
+        <h2 class="text-lg font-semibold">Sync Group: {{ group.name or 'Sync' }}</h2>
+        <p class="mt-1 text-sm text-gray-600">Code: <code class="rounded bg-gray-100 px-1 py-0.5 text-xs">{{ group.code }}</code></p>
+        <p class="mt-1 text-sm text-gray-600">Scheduled at: {{ group.schedule_time }}</p>
+        <p class="mt-2 text-sm">Total unique assets: <span class="font-semibold">{{ total_unique }}</span></p>
+      </div>
+      <div class="flex gap-2">
+        <a href="/groups/{{ group.id }}/edit" class="rounded-md border border-gray-300 px-3 py-2 text-sm">Edit</a>
+        <form method="post" action="/groups/{{ group.id }}/sync">
+          <button class="rounded-md bg-indigo-600 px-3 py-2 text-sm font-semibold text-white hover:bg-indigo-500" type="submit">Sync Now</button>
+        </form>
+      </div>
+    </div>
+    <div class="mt-4">
+      <div class="mb-2 text-xs text-gray-600">Per-instance progress</div>
+      <div id="per-instance" class="grid grid-cols-1 gap-2 md:grid-cols-2"></div>
+    </div>
+  </div>
+
+  <div class="rounded-lg border border-gray-200 bg-white p-6 shadow-sm">
+    <div class="mb-4 flex items-center justify-between">
+      <h3 class="text-base font-semibold">Instances</h3>
+      <a href="/groups/{{ group.id }}/instances/new" class="rounded-md bg-indigo-600 px-3 py-2 text-sm font-semibold text-white hover:bg-indigo-500">Add Instance</a>
+    </div>
+    {% if instances %}
+      <div class="-mx-6 -my-6 overflow-x-auto">
+        <table class="min-w-full divide-y divide-gray-200">
+          <thead class="bg-gray-50">
+            <tr>
+              <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Label</th>
+              <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Base URL</th>
+              <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Album ID</th>
+              <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Present</th>
+              <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Missing</th>
+              <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Coverage</th>
+              <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Size Limit</th>
+              <th class="px-6 py-3"/>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-gray-200 bg-white">
+          {% for i in instances %}
+            {% set s = stats.get(i.id) %}
+            <tr class="hover:bg-gray-50">
+              <td class="px-6 py-4">{{ i.label }}</td>
+              <td class="px-6 py-4">{{ i.base_url }}</td>
+              <td class="px-6 py-4"><a class="text-indigo-600 hover:text-indigo-900" href="{{ album_links.get(i.id) }}" target="_blank"><code class="rounded bg-gray-100 px-1 py-0.5 text-xs">{{ i.album_id }}</code></a></td>
+              <td class="px-6 py-4">{{ s.present if s else 0 }}</td>
+              <td class="px-6 py-4">{{ s.missing if s else 0 }}</td>
+              <td class="px-6 py-4">{{ s.coverage if s else 0 }}%</td>
+              <td class="px-6 py-4">{{ (i.size_limit_bytes // (1024*1024)) }} MB</td>
+              <td class="px-6 py-4 text-right">
+                <a href="/groups/{{ group.id }}/instances/{{ i.id }}/edit" class="text-indigo-600 hover:text-indigo-900">Edit</a>
+                <a href="/groups/{{ group.id }}/instances/{{ i.id }}/validate" class="ml-3 text-gray-600 hover:text-gray-900">Validate</a>
+                <form method="post" action="/groups/{{ group.id }}/instances/{{ i.id }}/remove" class="ml-3 inline">
+                  <button class="text-red-600 hover:text-red-800" type="submit">Remove</button>
+                </form>
+              </td>
+            </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <div class="rounded-md border border-dashed border-gray-300 p-8 text-center text-gray-500">No instances yet.</div>
+    {% endif %}
+  </div>
+</div>
+<script>
+async function fetchProgress() {
+  try {
+    const res = await fetch(`/api/groups/{{ group.id }}/progress`);
+    const data = await res.json();
+    const per = data.per_instance || {};
+    const labels = data.instance_labels || {};
+    const container = document.getElementById('per-instance');
+    container.innerHTML = '';
+    for (const [instId, v] of Object.entries(per)) {
+      const missing = v.missing || 0;
+      const donei = v.done || 0;
+      const pcti = missing ? Math.round((donei/missing)*100) : 100;
+      const card = document.createElement('div');
+      card.className = 'rounded border border-gray-200 p-3';
+      const name = labels[String(instId)] || `Instance #${instId}`;
+      card.innerHTML = `<div class="flex items-center justify-between text-sm"><span>${name}</span><span>${pcti}%</span></div><div class="mt-1 h-2 w-full overflow-hidden rounded bg-gray-100"><div class="h-2 bg-green-500" style="width:${pcti}%"></div></div>`;
+      container.appendChild(card);
+    }
+    // Oversized files list
+    const oversized = data.oversized || {};
+    let overHtml = '';
+    for (const [instId, items] of Object.entries(oversized)) {
+      if (!items.length) continue;
+      overHtml += `<div class="rounded border border-amber-200 bg-amber-50 p-3"><div class="mb-2 text-sm font-semibold text-amber-800">Oversized for Instance #${instId}</div><ul class="list-disc pl-5 text-xs text-amber-900">`;
+      for (const it of items) {
+        const sz = it.size ? (it.size/1024/1024).toFixed(1) + ' MB' : '';
+        overHtml += `<li><code>${it.filename || it.checksum}</code> ${sz}</li>`;
+      }
+      overHtml += '</ul></div>';
+    }
+    let panel = document.getElementById('oversized-panel');
+    if (!panel) {
+      panel = document.createElement('div');
+      panel.id = 'oversized-panel';
+      panel.className = 'mt-4';
+      document.querySelector('main .space-y-6').appendChild(panel);
+    }
+    panel.innerHTML = overHtml;
+  } catch (e) {
+    // ignore
+  }
+}
+setInterval(fetchProgress, 1000);
+fetchProgress();
+</script>
+{% endblock %}

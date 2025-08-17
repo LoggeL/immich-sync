@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="rounded-lg border border-gray-200 bg-white p-6 shadow-sm">
+  <h2 class="mb-4 text-lg font-semibold">Edit Group</h2>
+  <form method="post" action="/groups/{{ group.id }}/edit" class="space-y-4">
+    <div>
+      <label class="block text-sm font-medium text-gray-700">Name</label>
+      <input class="mt-1 w-full max-w-lg rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500" type="text" name="name" value="{{ group.name or '' }}" />
+    </div>
+    <div>
+      <label class="block text-sm font-medium text-gray-700">Daily Time (HH:MM)</label>
+      <input class="mt-1 w-full max-w-xs rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500" type="text" name="schedule_time" value="{{ group.schedule_time }}" />
+    </div>
+    <button class="inline-flex items-center rounded-md bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-500" type="submit">Save</button>
+  </form>
+</div>
+{% endblock %}
+
