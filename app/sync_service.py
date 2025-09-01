@@ -7,7 +7,8 @@ import threading
 from datetime import datetime
 
 from .db import get_session
-from .models import SyncGroup, Instance, AssetHash, AssetPresence
+from .models import SyncGroup, Instance, AssetHash, AssetPresence, User
+from sqlalchemy.exc import IntegrityError
 from .immich_client import ImmichClient
 
 
@@ -36,7 +37,11 @@ class SyncService:
         t.start()
 
     async def _fetch_instance_assets(self, instance: Instance) -> Tuple[List[Dict[str, Any]], ImmichClient]:
-        client = ImmichClient(instance.base_url, instance.api_key)
+        # Each instance uses the owning user's Immich settings
+        with get_session() as session:
+            user = session.get(User, instance.user_id)
+            assert user and user.base_url and user.api_key
+            client = ImmichClient(user.base_url, user.api_key)
         assets = await client.list_album_assets(instance.album_id)
         return assets, client
 
@@ -48,10 +53,18 @@ class SyncService:
                     continue
                 ah = session.query(AssetHash).filter(AssetHash.sync_id == group_id, AssetHash.checksum == checksum).one_or_none()
                 if not ah:
-                    ah = AssetHash(sync_id=group_id, checksum=checksum, original_filename=a.get("originalFileName"), size_bytes=a.get("size"))
+                    ah = AssetHash(
+                        sync_id=group_id,
+                        checksum=checksum,
+                        original_filename=a.get("originalFileName"),
+                        size_bytes=a.get("size"),
+                    )
                     session.add(ah)
-                    session.commit()
-                    session.refresh(ah)
+                    try:
+                        session.commit()
+                    except IntegrityError:
+                        session.rollback()
+                        ah = session.query(AssetHash).filter(AssetHash.sync_id == group_id, AssetHash.checksum == checksum).one()
                 ap = session.query(AssetPresence).filter(AssetPresence.asset_hash_id == ah.id, AssetPresence.instance_id == instance.id).one_or_none()
                 if not ap:
                     ap = AssetPresence(asset_hash_id=ah.id, instance_id=instance.id, remote_asset_id=a["id"], in_album=True)
@@ -63,8 +76,12 @@ class SyncService:
                 session.commit()
 
     async def _copy_asset_between_instances(self, checksum: str, source: Instance, target: Instance) -> bool:
-        src_client = ImmichClient(source.base_url, source.api_key)
-        tgt_client = ImmichClient(target.base_url, target.api_key)
+        with get_session() as session:
+            src_user = session.get(User, source.user_id)
+            tgt_user = session.get(User, target.user_id)
+            assert src_user and tgt_user and src_user.base_url and src_user.api_key and tgt_user.base_url and tgt_user.api_key
+            src_client = ImmichClient(src_user.base_url, src_user.api_key)
+            tgt_client = ImmichClient(tgt_user.base_url, tgt_user.api_key)
         try:
             src_assets = await src_client.list_album_assets(source.album_id)
             src = next((a for a in src_assets if a.get("checksum") == checksum and a.get("id")), None)
@@ -115,7 +132,7 @@ class SyncService:
                     return False
             meta = {
                 "deviceAssetId": src.get("deviceAssetId") or src.get("originalFileName") or checksum,
-                "deviceId": f"ImmichSync-{source.label}",
+                "deviceId": f"ImmichSync-{src_user.username}",
                 "fileCreatedAt": src.get("fileCreatedAt") or "",
                 "fileModifiedAt": src.get("fileModifiedAt") or src.get("fileCreatedAt") or "",
             }
@@ -128,8 +145,11 @@ class SyncService:
                 if not ah:
                     ah = AssetHash(sync_id=source.sync_id, checksum=checksum, original_filename=src.get("originalFileName"), size_bytes=size)
                     session.add(ah)
-                    session.commit()
-                    session.refresh(ah)
+                    try:
+                        session.commit()
+                    except IntegrityError:
+                        session.rollback()
+                        ah = session.query(AssetHash).filter(AssetHash.sync_id == source.sync_id, AssetHash.checksum == checksum).one()
                 ap = session.query(AssetPresence).filter(AssetPresence.asset_hash_id == ah.id, AssetPresence.instance_id == target.id).one_or_none()
                 if not ap:
                     ap = AssetPresence(asset_hash_id=ah.id, instance_id=target.id, remote_asset_id=new_asset_id or "", in_album=True)
@@ -150,6 +170,11 @@ class SyncService:
             if not group:
                 self._logger.warning("Sync aborted: group_id=%s not found", group_id)
                 return
+            # Expiry enforcement
+            from datetime import timezone
+            if group.expires_at and group.expires_at.replace(tzinfo=timezone.utc) < datetime.now(tz=timezone.utc):
+                self._logger.info("Sync aborted: group_id=%s expired", group_id)
+                return
             instances = session.query(Instance).filter(Instance.sync_id == group.id, Instance.active == True).all()
         self._logger.info("Found %d instances for group_id=%s", len(instances), group_id)
         results = await asyncio.gather(*(self._fetch_instance_assets(inst) for inst in instances))
@@ -169,13 +194,27 @@ class SyncService:
             # Initialize progress
             per_instance: Dict[int, Dict[str, int]] = {}
             total_tasks = 0
+            sum_already = 0
             for target in instances:
                 have = {a["checksum"] for a in instance_assets[target.id] if a.get("checksum")}
                 missing_list = [c for c in union_checksums if c not in have]
-                per_instance[target.id] = {"missing": len(missing_list), "done": 0}
+                already_count = len([c for c in union_checksums if c in have])
+                per_instance[target.id] = {"missing": len(missing_list), "done": 0, "already": already_count}
                 total_tasks += len(missing_list)
+                sum_already += already_count
             with self._lock:
-                self._progress[group_id] = {"status": "running", "total": total_tasks, "done": 0, "per_instance": per_instance, "oversized": {}}
+                from time import time as _now
+                self._progress[group_id] = {
+                    "status": "running",
+                    "total": total_tasks,
+                    "done": 0,
+                    "per_instance": per_instance,
+                    "oversized": {},
+                    "already": sum_already,
+                    "remaining": total_tasks,
+                    "started_at": datetime.utcfromtimestamp(_now()),
+                    "eta_seconds": None,
+                }
             self._logger.info("Total copy tasks=%d for group_id=%s", total_tasks, group_id)
 
             # Execute copies with oversize categorization
@@ -224,6 +263,32 @@ class SyncService:
                     with self._lock:
                         self._progress[group_id]["done"] += 1
                         self._progress[group_id]["per_instance"][target.id]["done"] += 1
+                        # update remaining and ETA
+                        remaining = max(0, self._progress[group_id]["total"] - self._progress[group_id]["done"])
+                        self._progress[group_id]["remaining"] = remaining
+                        try:
+                            started_at = self._progress[group_id]["started_at"]
+                            if isinstance(started_at, datetime):
+                                elapsed = (datetime.utcnow() - started_at).total_seconds()
+                                done_so_far = max(1, self._progress[group_id]["done"])
+                                rate = done_so_far / max(0.001, elapsed)
+                                self._progress[group_id]["eta_seconds"] = remaining / rate if rate > 0 else None
+                        except Exception:
+                            pass
+                    with self._lock:
+                        self._progress[group_id]["done"] += 1
+                        self._progress[group_id]["per_instance"][target.id]["done"] += 1
+                        remaining = max(0, self._progress[group_id]["total"] - self._progress[group_id]["done"])
+                        self._progress[group_id]["remaining"] = remaining
+                        try:
+                            started_at = self._progress[group_id]["started_at"]
+                            if isinstance(started_at, datetime):
+                                elapsed = (datetime.utcnow() - started_at).total_seconds()
+                                done_so_far = max(1, self._progress[group_id]["done"])
+                                rate = done_so_far / max(0.001, elapsed)
+                                self._progress[group_id]["eta_seconds"] = remaining / rate if rate > 0 else None
+                        except Exception:
+                            pass
         finally:
             await asyncio.gather(*(c.aclose() for c in clients), return_exceptions=True)
             # mark finished

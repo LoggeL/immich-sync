@@ -1,31 +1,37 @@
 [project]
 name = "immich-sync"
 version = "0.1.0"
-description = "Bi-directional album sync coordinator for multiple Immich instances"
+description = "Sync photos between multiple Immich instances"
 authors = [
   { name = "Immich Sync" }
 ]
-requires-python = ">=3.10"
+readme = "README.md"
+requires-python = ">=3.11"
 dependencies = [
-  "fastapi>=0.115.0",
+  "fastapi>=0.111.0",
   "uvicorn[standard]>=0.30.0",
-  "sqlmodel>=0.0.21",
+  "sqlalchemy>=2.0.30",
+  "pydantic>=2.7.0",
+  "pydantic-settings>=2.2.1",
   "httpx>=0.27.0",
-  "jinja2>=3.1.4",
-  "python-multipart>=0.0.9",
+  "python-jose[cryptography]>=3.3.0",
+  "passlib[bcrypt]>=1.7.4",
   "apscheduler>=3.10.4",
-  "pydantic-settings>=2.4.0",
+  "python-multipart>=0.0.9",
 ]
 
-[project.scripts]
-immich-sync = "app.main:run"
-immich-sync-web = "app.main:run"
-
-[project.optional-dependencies]
-web = []
-
 [tool.uv]
+dev-dependencies = [
+  "ruff>=0.5.0",
+  "pytest>=8.2.0",
+]
 index-strategy = "unsafe-best-match"
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+
+
 
 [build-system]
 requires = ["setuptools>=68", "wheel"]
