@@ -20,6 +20,7 @@ class UserOut(BaseModel):
     id: int
     username: str
     created_at: datetime
+    base_url: str | None = None
 
     class Config:
         from_attributes = True
@@ -27,7 +28,7 @@ class UserOut(BaseModel):
 
 class GroupCreate(BaseModel):
     label: str
-    expires_at: Optional[datetime] = None
+    expires_at: datetime
 
 
 class GroupOut(BaseModel):
@@ -44,15 +45,18 @@ class GroupOut(BaseModel):
 
 class GroupDetailOut(GroupOut):
     instances: list["InstanceOut"] = []
+    members: list["UserOut"] = []
+
+
+class GroupUpdate(BaseModel):
+    label: Optional[str] = None
+    expires_at: Optional[datetime] = None
 
 
 class InstanceCreate(BaseModel):
     sync_id: int
-    label: str
-    base_url: str
-    api_key: str
     album_id: str
-    size_limit_bytes: int = Field(default=1024 * 1024 * 1024 * 1024)
+    size_limit_bytes: int = Field(default=100 * 1024 * 1024)
     active: bool = True
 
 
@@ -60,11 +64,11 @@ class InstanceOut(BaseModel):
     id: int
     user_id: int
     sync_id: int
-    label: str
-    base_url: str
     album_id: str
     size_limit_bytes: int
     active: bool
+    username: str
+    base_url: str | None = None
 
     class Config:
         from_attributes = True
@@ -73,6 +77,7 @@ class InstanceOut(BaseModel):
 class ProgressPerInstance(BaseModel):
     missing: int
     done: int
+    already: int
 
 
 class SyncProgress(BaseModel):
@@ -81,4 +86,20 @@ class SyncProgress(BaseModel):
     done: int
     per_instance: dict[int, ProgressPerInstance] | dict
     oversized: dict[int, list[dict]] | dict
+    already: int | None = None
+    remaining: int | None = None
+    started_at: Optional[datetime] = None
+    eta_seconds: Optional[float] = None
+
+
+class ImmichSettings(BaseModel):
+    base_url: str
+    api_key: str
+
+
+class InstanceStats(BaseModel):
+    instance_id: int
+    album_id: str
+    album_title: str | None = None
+    asset_count: int
 

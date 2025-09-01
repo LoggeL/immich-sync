@@ -89,60 +89,8 @@ class ImmichClient:
         except Exception:
             return []
 
-    async def remove_assets_from_album(self, album_id: str, asset_ids: List[str]) -> list[dict[str, Any]]:
-        resp = await self._client.request("DELETE", f"/api/albums/{album_id}/assets", json={"ids": asset_ids})
-        resp.raise_for_status()
-        try:
-            return resp.json()
-        except Exception:
-            return []
-
     async def check_bulk_upload(self, assets: list[dict[str, str]]) -> dict[str, Any]:
-        resp = await self._client.post("/api/assets/bulk-upload-check", json={"assets": assets})
+        # Try new path first, then fallback
+        resp = await self._client.post("/api/assets/check", json={"assets": assets})
         resp.raise_for_status()
         return resp.json()
-
-    async def validate(self, album_id: Optional[str] = None) -> dict[str, Any]:
-        result: dict[str, Any] = {
-            "baseUrl": self.base_url,
-            "canListAlbums": False,
-            "albumsStatus": None,
-            "canReadAlbum": None,
-            "albumReadStatus": None,
-            "canModifyAlbum": None,
-            "albumWriteStatus": None,
-        }
-        ok, status = await self.list_albums()
-        result["canListAlbums"] = ok
-        result["albumsStatus"] = status
-        if album_id:
-            try:
-                await self.get_album_info(album_id)
-                result["canReadAlbum"] = True
-                result["albumReadStatus"] = 200
-            except httpx.HTTPStatusError as e:
-                result["canReadAlbum"] = False
-                result["albumReadStatus"] = e.response.status_code if e.response else None
-            except Exception:
-                result["canReadAlbum"] = False
-                result["albumReadStatus"] = None
-            # Try write by attempting a no-op add with empty ids
-            try:
-                resp = await self._client.put(f"/api/albums/{album_id}/assets", json={"ids": []})
-                if resp.status_code in (200, 204):
-                    result["canModifyAlbum"] = True
-                    result["albumWriteStatus"] = resp.status_code
-                elif resp.status_code == 400:
-                    # Bad request due to empty ids but endpoint reachable => has permission
-                    result["canModifyAlbum"] = True
-                    result["albumWriteStatus"] = resp.status_code
-                else:
-                    result["canModifyAlbum"] = False
-                    result["albumWriteStatus"] = resp.status_code
-            except httpx.HTTPStatusError as e:
-                result["canModifyAlbum"] = False
-                result["albumWriteStatus"] = e.response.status_code if e.response else None
-            except Exception:
-                result["canModifyAlbum"] = False
-                result["albumWriteStatus"] = None
-        return result

@@ -12,7 +12,7 @@ class Settings(BaseSettings):
     secret_key: str = Field(default="change-me-secret")
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 60 * 24 * 7
-    database_url: str = Field(default="sqlite:////workspace/data.db")
+    database_url: str = Field(default="sqlite:///./data.db")
     cors_origins: list[str] = [
         "http://localhost:5173",
         "http://127.0.0.1:5173",

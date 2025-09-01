@@ -16,6 +16,9 @@ class User(Base):
     username: Mapped[str] = mapped_column(String(128), unique=True, index=True)
     hashed_password: Mapped[str] = mapped_column(String(256))
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    # Each user has exactly one Immich base URL and API key
+    base_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    api_key: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
     instances: Mapped[list["Instance"]] = relationship("Instance", back_populates="user")
     owned_groups: Mapped[list["SyncGroup"]] = relationship("SyncGroup", back_populates="owner")
@@ -52,15 +55,14 @@ class GroupMember(Base):
 
 class Instance(Base):
     __tablename__ = "instances"
+    __table_args__ = (UniqueConstraint("sync_id", "user_id", name="uq_instance_user_group"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
     sync_id: Mapped[int] = mapped_column(ForeignKey("sync_groups.id"))
     label: Mapped[str] = mapped_column(String(200))
-    base_url: Mapped[str] = mapped_column(Text)
-    api_key: Mapped[str] = mapped_column(Text)
     album_id: Mapped[str] = mapped_column(String(200))
-    size_limit_bytes: Mapped[int] = mapped_column(Integer, default=1024 * 1024 * 1024 * 1024)
+    size_limit_bytes: Mapped[int] = mapped_column(Integer, default=100 * 1024 * 1024)
     active: Mapped[bool] = mapped_column(Boolean, default=True)
 
     user: Mapped["User"] = relationship("User", back_populates="instances")
