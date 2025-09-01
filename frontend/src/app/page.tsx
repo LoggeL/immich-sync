@@ -1,14 +1,12 @@
 "use client";
 import React from "react";
 import LoginRegister from "@/components/LoginRegister";
+import { apiFetch } from "@/lib/api";
 
-type Group = { id: number; name: string; code: string; schedule_time: string };
-
-type SessionResp = { authenticated: boolean; user?: { id: number; username: string } };
+type Group = { id: number; label: string; owner_id: number; created_at: string };
 
 export default function Home() {
-  const base = process.env.NEXT_PUBLIC_API_BASE || "http://localhost:8080";
-  const [session, setSession] = React.useState<SessionResp>({ authenticated: false });
+  const [authenticated, setAuthenticated] = React.useState<boolean>(false);
   const [groups, setGroups] = React.useState<Group[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [creating, setCreating] = React.useState(false);
@@ -16,14 +14,16 @@ export default function Home() {
 
   const load = React.useCallback(async () => {
     try {
-      const sres = await fetch(`${base}/api/auth/session`, { credentials: "include" });
-      const sdata = (await sres.json()) as SessionResp;
-      setSession(sdata);
-      if (sdata.authenticated) {
-        const gres = await fetch(`${base}/api/groups`, { credentials: "include" });
-        if (gres.ok) setGroups(await gres.json());
+      const gres = await apiFetch(`/api/groups`);
+      if (gres.ok) {
+        setAuthenticated(true);
+        setGroups(await gres.json());
+      } else {
+        setAuthenticated(false);
       }
-    } catch {}
+    } catch {
+      setAuthenticated(false);
+    }
     setLoading(false);
   }, [base]);
 
@@ -42,13 +42,13 @@ export default function Home() {
     );
   }
 
-  if (!session.authenticated) {
+  if (!authenticated) {
     return <LoginRegister />;
   }
 
   const onLogout = async (e: React.FormEvent) => {
     e.preventDefault();
-    await fetch(`${base}/api/auth/logout`, { method: "POST", credentials: "include" });
+    localStorage.removeItem("immich_sync_token");
     window.location.reload();
   };
 
@@ -78,8 +78,8 @@ export default function Home() {
         <section className="card mt-6">
           <h2 className="mb-4 text-base font-semibold">Create Sync Group</h2>
           <form onSubmit={onCreate} className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-            <input className="input" placeholder="Name" value={newGroup.name} onChange={(e)=>setNewGroup({...newGroup, name: e.target.value})} />
-            <input className="input" placeholder="HH:MM" value={newGroup.schedule_time} onChange={(e)=>setNewGroup({...newGroup, schedule_time: e.target.value})} />
+            <input className="input" placeholder="Label" value={newGroup.name} onChange={(e)=>setNewGroup({...newGroup, name: e.target.value})} />
+            <input className="input" placeholder="Expires (optional ISO)" value={newGroup.schedule_time} onChange={(e)=>setNewGroup({...newGroup, schedule_time: e.target.value})} />
             <button disabled={creating} className="btn btn-primary" type="submit">{creating ? "Creating…" : "Create"}</button>
           </form>
         </section>
@@ -87,9 +87,8 @@ export default function Home() {
         <div className="mt-3 grid grid-cols-1 gap-4 md:grid-cols-2">
           {groups.map((g) => (
             <a key={g.id} href={`/groups/${g.id}`} className="card hover:bg-neutral-900">
-              <div className="text-lg font-semibold">{g.name}</div>
-              <div className="mt-1 text-xs text-neutral-400">Code: {g.code}</div>
-              <div className="mt-1 text-xs text-neutral-400">Daily: {g.schedule_time}</div>
+              <div className="text-lg font-semibold">{g.label}</div>
+              <div className="mt-1 text-xs text-neutral-400">Owner: {g.owner_id}</div>
             </a>
           ))}
           {groups.length === 0 && (

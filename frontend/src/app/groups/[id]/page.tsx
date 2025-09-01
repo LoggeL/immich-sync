@@ -1,13 +1,12 @@
 import React from "react";
 import { notFound } from "next/navigation";
+import { API_BASE } from "@/lib/api";
 import GroupClient from "./GroupClient";
 
-const BASE = process.env.NEXT_PUBLIC_API_BASE || "http://localhost:8080";
+const BASE = API_BASE;
 
 type Instance = { id: number; label: string; base_url: string; album_id: string; size_limit_bytes: number };
-type Member = { id: number; user_id: number; label: string; album_id: string; size_limit_bytes: number };
-
-type Group = { id: number; name: string; code: string; schedule_time: string; instances: Instance[]; members: Member[] };
+type Group = { id: number; label: string; instances: Instance[] };
 
 export default async function GroupPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;

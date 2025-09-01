@@ -1,42 +1,24 @@
 "use client";
 import React from "react";
+import { apiFetch } from "@/lib/api";
 
 type Instance = { id: number; label: string; base_url: string; album_id: string; size_limit_bytes: number };
-type Member = { id: number; user_id: number; label: string; album_id: string; size_limit_bytes: number };
-
-type Group = { id: number; name: string; code: string; schedule_time: string; instances: Instance[]; members: Member[] };
-
-type SessionResp = { authenticated: boolean; user?: { id: number; username: string } };
-
-type StatsResp = { total_unique: number; instances: Array<{ id:number; label:string; present:number; missing:number; coverage:number }>};
-
+type Group = { id: number; label: string; instances: Instance[] };
 type ProgressResp = { status: string; total: number; done: number; per_instance: Record<string, { missing:number; done:number }> };
 
 export default function GroupClient({ initial }: { initial: Group }) {
-  const base = process.env.NEXT_PUBLIC_API_BASE || "http://localhost:8080";
   const [group, setGroup] = React.useState<Group>(initial);
-  const [session, setSession] = React.useState<SessionResp>({ authenticated: false });
-  const [joining, setJoining] = React.useState(false);
-  const [label, setLabel] = React.useState("");
-  const [albumId, setAlbumId] = React.useState("");
-  const [limit, setLimit] = React.useState(100);
   const [busySync, setBusySync] = React.useState(false);
-  const [stats, setStats] = React.useState<StatsResp | null>(null);
   const [progress, setProgress] = React.useState<ProgressResp | null>(null);
 
   const load = React.useCallback(async () => {
     try {
-      const sres = await fetch(`${base}/api/auth/session`, { credentials: "include" });
-      const sdata = (await sres.json()) as SessionResp;
-      setSession(sdata);
-      const gres = await fetch(`${base}/api/groups/${group.id}`, { credentials: "include", cache: "no-store" });
+      const gres = await apiFetch(`/api/groups/${group.id}`);
       if (gres.ok) setGroup(await gres.json());
-      const st = await fetch(`${base}/api/groups/${group.id}/stats`, { cache: "no-store" });
-      if (st.ok) setStats(await st.json());
-      const pr = await fetch(`${base}/api/groups/${group.id}/progress`, { cache: "no-store" });
+      const pr = await apiFetch(`/api/groups/${group.id}/progress`);
       if (pr.ok) setProgress(await pr.json());
     } catch {}
-  }, [base, group.id]);
+  }, [group.id]);
 
   React.useEffect(() => {
     load();
@@ -44,36 +26,27 @@ export default function GroupClient({ initial }: { initial: Group }) {
     return () => clearInterval(t);
   }, [load]);
 
-  const myMember = session.authenticated ? group.members.find((m) => m.user_id === session.user?.id) : undefined;
-
-  const onJoin = async (e: React.FormEvent) => {
+  const onAddInstance = async (e: React.FormEvent) => {
     e.preventDefault();
-    setJoining(true);
-    try {
-      await fetch(`${base}/api/groups/${group.id}/join`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ label, album_id: albumId, size_limit_mb: limit }),
-      });
-      setLabel("");
-      setAlbumId("");
-      setLimit(100);
-      await load();
-    } finally {
-      setJoining(false);
-    }
-  };
-
-  const onLeave = async () => {
-    await fetch(`${base}/api/groups/${group.id}/leave`, { method: "POST", credentials: "include" });
+    const form = new FormData(e.target as HTMLFormElement);
+    const payload = {
+      sync_id: group.id,
+      label: String(form.get("label") || ""),
+      base_url: String(form.get("base_url") || ""),
+      api_key: String(form.get("api_key") || ""),
+      album_id: String(form.get("album_id") || ""),
+      size_limit_bytes: Number(form.get("size_limit_bytes") || 104857600),
+      active: true,
+    };
+    await apiFetch(`/api/instances`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+    (e.target as HTMLFormElement).reset();
     await load();
   };
 
   const onTriggerSync = async () => {
     setBusySync(true);
     try {
-      await fetch(`${base}/api/groups/${group.id}/sync`, { method: "POST" });
+      await apiFetch(`/api/groups/${group.id}/sync`, { method: "POST" });
     } finally {
       setBusySync(false);
     }
@@ -81,7 +54,7 @@ export default function GroupClient({ initial }: { initial: Group }) {
 
   const renderBars = () => {
     const per = progress?.per_instance || {};
-    const rows = stats?.instances || [];
+    const rows = group.instances.map((i) => ({ id: i.id, label: i.label, present: 0, missing: per[String(i.id)]?.missing ?? 0 }));
     return (
       <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
         {rows.map((r) => {
@@ -107,22 +80,17 @@ export default function GroupClient({ initial }: { initial: Group }) {
     <div className="min-h-screen p-8">
       <main className="mx-auto max-w-5xl">
         <div className="flex items-center justify-between">
-          <h1 className="text-2xl font-bold">{group.name}</h1>
+          <h1 className="text-2xl font-bold">{group.label}</h1>
           <a href="/" className="text-sm text-indigo-400 hover:text-indigo-300">
             Back
           </a>
         </div>
-        <div className="mt-2 text-sm text-neutral-400">
-          Code: <code className="rounded bg-neutral-800 px-1 py-0.5">{group.code}</code>
-        </div>
-        <div className="mt-1 text-sm text-neutral-400">Daily: {group.schedule_time}</div>
+        <div className="mt-1 text-sm text-neutral-400">Instances: {group.instances.length}</div>
 
-        {stats && (
-          <section className="card mt-6">
-            <div className="mb-2 text-sm text-neutral-400">Total unique assets: <span className="font-semibold text-neutral-200">{stats.total_unique}</span></div>
-            {renderBars()}
-          </section>
-        )}
+        <section className="card mt-6">
+          <div className="mb-2 text-sm text-neutral-400">Progress</div>
+          {renderBars()}
+        </section>
 
         <section className="card mt-6">
           <div className="mb-4 flex items-center justify-between">
@@ -131,45 +99,39 @@ export default function GroupClient({ initial }: { initial: Group }) {
               <button onClick={onTriggerSync} disabled={busySync} className="btn btn-primary">
                 {busySync ? "Syncing…" : "Trigger Sync"}
               </button>
-              {myMember ? (
-                <button onClick={onLeave} className="btn btn-outline">Leave</button>
-              ) : null}
+              
             </div>
           </div>
 
-          {group.members.length === 0 ? (
-            <div className="text-neutral-400">No members yet.</div>
-          ) : (
-            <div className="table-wrap">
-              <table className="table">
-                <thead>
-                  <tr>
-                    <th>Label</th>
-                    <th>Album</th>
-                    <th>Size Limit</th>
+          <div className="table-wrap">
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>Label</th>
+                  <th>Album</th>
+                  <th>Size Limit</th>
+                </tr>
+              </thead>
+              <tbody>
+                {group.instances.map((m) => (
+                  <tr key={m.id} className="hover:bg-neutral-900">
+                    <td>{m.label}</td>
+                    <td><code className="rounded bg-neutral-800 px-1 py-0.5 text-xs">{m.album_id}</code></td>
+                    <td>{Math.floor(m.size_limit_bytes / (1024 * 1024))} MB</td>
                   </tr>
-                </thead>
-                <tbody>
-                  {group.members.map((m) => (
-                    <tr key={m.id} className="hover:bg-neutral-900">
-                      <td>{m.label}</td>
-                      <td><code className="rounded bg-neutral-800 px-1 py-0.5 text-xs">{m.album_id}</code></td>
-                      <td>{Math.floor(m.size_limit_bytes / (1024 * 1024))} MB</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
+                ))}
+              </tbody>
+            </table>
+          </div>
 
-          {session.authenticated && !myMember && (
-            <form onSubmit={onJoin} className="mt-6 grid grid-cols-1 gap-3 md:grid-cols-4">
-              <input className="input" placeholder="Label" value={label} onChange={(e) => setLabel(e.target.value)} />
-              <input className="input" placeholder="Album ID" value={albumId} onChange={(e) => setAlbumId(e.target.value)} required />
-              <input className="input" type="number" min={1} placeholder="Limit MB" value={limit} onChange={(e) => setLimit(parseInt(e.target.value || "100"))} />
-              <button disabled={joining} className="btn btn-primary" type="submit">{joining ? "Joining…" : "Join Group"}</button>
-            </form>
-          )}
+          <form onSubmit={onAddInstance} className="mt-6 grid grid-cols-1 gap-3 md:grid-cols-6">
+            <input name="label" className="input" placeholder="Label" />
+            <input name="base_url" className="input" placeholder="Instance Base URL" />
+            <input name="api_key" className="input" placeholder="API Key" />
+            <input name="album_id" className="input" placeholder="Album ID" required />
+            <input name="size_limit_bytes" type="number" className="input" placeholder="Limit bytes" defaultValue={100*1024*1024} />
+            <button className="btn btn-primary" type="submit">Add Instance</button>
+          </form>
         </section>
 
         {group.instances && group.instances.length > 0 && (

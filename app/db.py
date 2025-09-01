@@ -3,23 +3,23 @@ from __future__ import annotations
 from contextlib import contextmanager
 from typing import Iterator
 
-from sqlmodel import SQLModel, Session, create_engine
-from .migrations import run_migrations
+from sqlalchemy import create_engine
+from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
 from .config import settings
 
 
-engine = create_engine(settings.database_url, echo=False)
+class Base(DeclarativeBase):
+    pass
 
 
-def init_db() -> None:
-    SQLModel.metadata.create_all(engine)
-    run_migrations(engine)
+engine = create_engine(settings.database_url, future=True)
+SessionLocal = sessionmaker(bind=engine, expire_on_commit=False, class_=Session)
 
 
 @contextmanager
 def get_session() -> Iterator[Session]:
-    session = Session(engine)
+    session = SessionLocal()
     try:
         yield session
     finally:
