@@ -178,7 +178,13 @@ def compute_missing(index: Dict[str, Dict[str, Asset]]) -> Dict[str, List[str]]:
     return missing
 
 
-async def sync_assets(config: SyncConfig, *, dry_run: bool = False, progress: bool = True) -> SyncSummary:
+async def sync_assets(
+    config: SyncConfig,
+    *,
+    dry_run: bool = False,
+    progress: bool = True,
+    workers: int = 4,
+) -> SyncSummary:
     """Synchronise assets between all servers defined in the config."""
 
     clients: dict[str, ImmichClient] = {
@@ -227,61 +233,61 @@ async def sync_assets(config: SyncConfig, *, dry_run: bool = False, progress: bo
         if progress and tasks:
             progress_bar = tqdm(total=len(tasks), desc="Syncing assets", unit="asset")
 
-        try:
-            for checksum, source_config, source_asset, target in tasks:
-                logger.info("Syncing checksum %s from %s to %s", checksum, source_config.name, target.name)
+        semaphore = asyncio.Semaphore(max(1, int(workers)))
 
-                if dry_run:
-                    summary.copied += 1
+        async def process_task(checksum: str, source_config: ServerConfig, source_asset: Asset, target: ServerConfig) -> None:
+            try:
+                async with semaphore:
+                    logger.info("Syncing checksum %s from %s to %s", checksum, source_config.name, target.name)
+
+                    if dry_run:
+                        summary.copied += 1
+                        _register_completion(summary, target.name, checksum, index, source_asset)
+                        return
+
+                    try:
+                        already_present = await _ensure_asset_on_target(
+                            checksum,
+                            source_config,
+                            source_asset,
+                            target,
+                            clients,
+                        )
+                    except OversizeError:
+                        summary.per_server[target.name].oversized += 1
+                        entry = {
+                            "checksum": checksum,
+                            "filename": source_asset.get("originalFileName"),
+                            "size": source_asset.get("size"),
+                        }
+                        summary.oversized.setdefault(target.name, []).append(entry)
+                        logger.warning(
+                            "Skipping oversized asset %s (%s) for target %s",
+                            checksum,
+                            entry["filename"],
+                            target.name,
+                        )
+                        return
+                    except Exception as exc:  # noqa: BLE001
+                        msg = f"Failed to copy {checksum} from {source_config.name} to {target.name}: {exc}"
+                        summary.errors.append(msg)
+                        logger.error(msg)
+                        return
+
+                    if already_present:
+                        summary.linked += 1
+                        summary.per_server[target.name].linked += 1
+                    else:
+                        summary.copied += 1
+                        summary.per_server[target.name].copied += 1
+
                     _register_completion(summary, target.name, checksum, index, source_asset)
-                    if progress_bar:
-                        progress_bar.update(1)
-                    continue
-
-                try:
-                    already_present = await _ensure_asset_on_target(
-                        checksum,
-                        source_config,
-                        source_asset,
-                        target,
-                        clients,
-                    )
-                except OversizeError:
-                    summary.per_server[target.name].oversized += 1
-                    entry = {
-                        "checksum": checksum,
-                        "filename": source_asset.get("originalFileName"),
-                        "size": source_asset.get("size"),
-                    }
-                    summary.oversized.setdefault(target.name, []).append(entry)
-                    logger.warning(
-                        "Skipping oversized asset %s (%s) for target %s",
-                        checksum,
-                        entry["filename"],
-                        target.name,
-                    )
-                    if progress_bar:
-                        progress_bar.update(1)
-                    continue
-                except Exception as exc:  # noqa: BLE001
-                    msg = f"Failed to copy {checksum} from {source_config.name} to {target.name}: {exc}"
-                    summary.errors.append(msg)
-                    logger.error(msg)
-                    if progress_bar:
-                        progress_bar.update(1)
-                    continue
-
-                if already_present:
-                    summary.linked += 1
-                    summary.per_server[target.name].linked += 1
-                else:
-                    summary.copied += 1
-                    summary.per_server[target.name].copied += 1
-
-                _register_completion(summary, target.name, checksum, index, source_asset)
-
+            finally:
                 if progress_bar:
                     progress_bar.update(1)
+
+        try:
+            await asyncio.gather(*(process_task(*task) for task in tasks))
         finally:
             if progress_bar:
                 progress_bar.close()
@@ -339,8 +345,7 @@ async def _ensure_asset_on_target(
         return True
 
     source_client = clients[source.name]
-    response = await source_client.download_asset(source_asset["id"])
-    content = await response.aread()
+    content = await source_client.download_asset(source_asset["id"])
 
     if size_limit is not None and (not isinstance(size, int)) and len(content) > size_limit:
         raise OversizeError()

@@ -50,9 +50,10 @@ uv run immich-sync --config config.json
 ```
 
 Use `--dry-run` to compute the plan without transferring data and `--verbose`
-for additional logging. Each missing asset/target pair is processed
-individually and the CLI displays a `tqdm` progress bar so you can follow the
-sync in real time.
+for additional logging. Tune concurrency with `--workers <count>` (defaults to
+4); set it to `1` if you need deterministic, sequential processing. Each
+missing asset/target pair is processed individually and the CLI displays a
+`tqdm` progress bar so you can follow the sync in real time.
 
 The CLI prints a short summary that includes copy counts, link counts (when an
 asset already exists on a target) and any errors that occurred.

@@ -9,14 +9,6 @@ import app.sync as sync_mod
 from app.sync import ServerConfig, SyncConfig, compute_missing, index_assets, load_config
 
 
-class DummyResponse:
-    def __init__(self, payload: bytes) -> None:
-        self._payload = payload
-
-    async def aread(self) -> bytes:
-        return self._payload
-
-
 def write_config(tmp_path: Path, data: dict) -> Path:
     path = tmp_path / "config.json"
     path.write_text(json.dumps(data), encoding="utf-8")
@@ -105,8 +97,8 @@ async def test_sync_assets_copies_missing(monkeypatch: pytest.MonkeyPatch) -> No
         async def list_album_assets(self, album_id: str) -> list[dict]:
             return list(assets_by_base[self.base_url])
 
-        async def download_asset(self, asset_id: str) -> DummyResponse:
-            return DummyResponse(b"binary-data")
+        async def download_asset(self, asset_id: str) -> bytes:
+            return b"binary-data"
 
         async def upload_asset(self, filename: str, content: bytes, metadata: dict, checksum_b64: str | None = None) -> dict:
             uploads.append((self.base_url, filename))
@@ -131,7 +123,7 @@ async def test_sync_assets_copies_missing(monkeypatch: pytest.MonkeyPatch) -> No
         )
     )
 
-    summary = await sync_mod.sync_assets(config, progress=False)
+    summary = await sync_mod.sync_assets(config, progress=False, workers=1)
 
     assert summary.copied == 1
     assert summary.linked == 0
@@ -167,7 +159,7 @@ async def test_sync_assets_links_existing(monkeypatch: pytest.MonkeyPatch) -> No
         async def list_album_assets(self, album_id: str) -> list[dict]:
             return list(assets_by_base[self.base_url])
 
-        async def download_asset(self, asset_id: str) -> DummyResponse:
+        async def download_asset(self, asset_id: str) -> bytes:
             raise AssertionError("download should not be called when asset already exists")
 
         async def upload_asset(self, filename: str, content: bytes, metadata: dict, checksum_b64: str | None = None) -> dict:
@@ -202,7 +194,7 @@ async def test_sync_assets_links_existing(monkeypatch: pytest.MonkeyPatch) -> No
         )
     )
 
-    summary = await sync_mod.sync_assets(config, progress=False)
+    summary = await sync_mod.sync_assets(config, progress=False, workers=1)
 
     assert summary.copied == 0
     assert summary.linked == 1

@@ -30,6 +30,12 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Enable debug logging",
     )
+    parser.add_argument(
+        "--workers",
+        type=int,
+        default=4,
+        help="Number of concurrent sync workers (default: 4)",
+    )
     return parser.parse_args()
 
 
@@ -47,7 +53,13 @@ def main() -> int:
         return 2
 
     try:
-        summary = asyncio.run(sync_assets(config, dry_run=args.dry_run))
+        summary = asyncio.run(
+            sync_assets(
+                config,
+                dry_run=args.dry_run,
+                workers=max(1, args.workers),
+            )
+        )
     except KeyboardInterrupt:
         logger.warning("Sync interrupted by user")
         return 130
