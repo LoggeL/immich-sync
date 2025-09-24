@@ -1,0 +1,17 @@
+{
+  "servers": [
+    {
+      "name": "primary",
+      "base_url": "https://immich.example",
+      "api_key": "YOUR_PRIMARY_API_KEY",
+      "album_id": "00000000-0000-0000-0000-000000000000",
+      "size_limit_bytes": 524288000
+    },
+    {
+      "name": "secondary",
+      "base_url": "https://immich.backup",
+      "api_key": "YOUR_SECONDARY_API_KEY",
+      "album_id": "11111111-1111-1111-1111-111111111111"
+    }
+  ]
+}
